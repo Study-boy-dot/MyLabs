@@ -128,6 +128,9 @@ static void *act_scheduler(void *data)
             if(act_procs == proc){
                 act_procs = proc->next;
             }
+
+            //  ===========DEBUG=========================//
+            // delete the last process will make some bug
             proc->next->prev = proc->prev;
             proc->prev->next = proc->next;
             
