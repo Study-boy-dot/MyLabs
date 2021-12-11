@@ -5,7 +5,7 @@
 
 void proc(void *data)
 {
-    for (;;) {
+    for (int i=0;i<1;++i) {
         printf("%s\n", (char *)data);
         act_yield();
     }
@@ -21,5 +21,5 @@ void main(void)
     act_spawn(proc, "   D");
     act_spawn(proc, "    E");
 
-    act_loop(3);
+    act_loop(5);
 }

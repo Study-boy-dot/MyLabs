@@ -55,7 +55,7 @@ static void *act_scheduler(void *data)
     
     ucontext_t main_ctx;
 
-    act_proc_t *proc = NULL;
+    act_proc_t *proc = act_procs;
     act_proc_t *next_proc = act_procs;
     
     sche.ctx = &main_ctx;
@@ -71,12 +71,24 @@ static void *act_scheduler(void *data)
     for (;;) {
         for (;;) {
             act_access_procs_begin();
-        
-            if (proc == NULL) {
-                proc = act_procs;
-            } else {
-                proc = proc->next;
+            
+            if(proc == NULL){
+                if(act_max_pid != 0){
+                    printf("all is waiting\n");
+                    
+                    for(act_proc_t *temp = act_procs;temp!=NULL;temp=temp->next){
+                        if(temp->status == ACT_WAITING)
+                            temp->status = ACT_RUNABLE;
+                    }
+                    proc = act_procs;
+                }
+                else{
+                    printf("proc is empty\n");
+                    pthread_exit(NULL);
+                    return NULL;
+                }
             }
+            printf("Proc %d status:%d\n",proc->pid,proc->status);
             
             if (ACT_RUNABLE == proc->status) {
                 proc->status = ACT_RUNNING;
@@ -84,6 +96,9 @@ static void *act_scheduler(void *data)
                 break;
             }
             
+            
+
+            proc = proc->next;
             act_access_procs_end();
             
             //printf("scheduler %d wait\n", sche_id);
@@ -91,7 +106,7 @@ static void *act_scheduler(void *data)
             //usleep(1000 * 10);
         }
         
-        //printf("scheduler %d run proc %d begin\n", sche_id, proc->pid);
+        printf("scheduler %d run proc %d begin\n", sche_id, proc->pid);
     
         sche.running_proc = proc;
         
@@ -99,24 +114,31 @@ static void *act_scheduler(void *data)
         
         sche.running_proc = NULL;
         
-        //printf("scheduler %d run proc %d end\n\n", sche_id, proc->pid);
+        printf("scheduler %d run proc %d end\n", sche_id, proc->pid);
         
         if (ACT_RUNNING == proc->status) {
-            proc->status = ACT_RUNABLE;
+            printf("Running\n\n");
+            proc->status = ACT_WAITING;
+            proc = act_procs;
         }
-        else if (ACT_EXIT == proc->status) {
+        else if (proc->status == ACT_EXIT) {
             act_access_procs_begin();
             
+            printf("Proc exit\n\n");
+            if(act_procs == proc){
+                act_procs = proc->next;
+            }
             proc->next->prev = proc->prev;
             proc->prev->next = proc->next;
             
+            --act_max_pid;
             act_access_procs_end();
             
             free(proc->ctx->uc_stack.ss_sp);
             free(proc->ctx);
             free(proc);
             
-            proc = NULL;
+            proc = act_procs;
         }
     }
 }
@@ -162,6 +184,7 @@ act_pid act_spawn2(act_func func, void *data, int stack_size)
     proc->ctx = (ucontext_t *)malloc(sizeof(ucontext_t));
     proc->ctx->uc_stack.ss_sp = (char *)malloc(stack_size);
     proc->ctx->uc_stack.ss_size = stack_size;
+    // proc->ctx->uc_link = 
     
     getcontext(proc->ctx);
     
@@ -169,22 +192,39 @@ act_pid act_spawn2(act_func func, void *data, int stack_size)
     
     act_access_procs_begin();
     
-    proc->pid = ++ act_max_pid;
+    proc->pid = ++act_max_pid;
+
+    // printf("Process_id:%d\n",act_max_pid);
     
     if (act_procs != NULL) {
-        proc->next = act_procs;
-        proc->prev = act_procs->prev;
+        act_proc_t *temp = act_procs;
+        proc->next = NULL;
+        while(1){
+            if(temp->next == NULL){
+                temp->next = proc;
+                proc->prev = temp;
+                break;
+            }
+            temp = temp->next;
+        }
+        // proc->next = act_procs;
+        // proc->prev = act_procs->prev;
     
-        proc->next->prev = proc;
-        proc->prev->next = proc;
+        // proc->next->prev = proc;
+        // proc->prev->next = proc;
     }
     else {
-        proc->next = proc;
+        proc->next = NULL;
         proc->prev = proc;
         
         act_procs = proc;
     }
     
+    act_proc_t *temp = act_procs;
+    // for(int i=0;i<act_max_pid;++i){
+        // printf("Proc id:%d\n",temp->pid);
+    //     temp=temp->next;
+    // }
     act_access_procs_end();
 }
 
@@ -193,6 +233,8 @@ void act_exit()
     act_sche_t *sche = act_current_sche();
     
     sche->running_proc->status = ACT_EXIT;
+
+    swapcontext(sche->running_proc->ctx, sche->ctx);
 }
 
 act_pid act_self()
@@ -247,5 +289,6 @@ void act_loop(int num_schedulers)
         }
     }
     
+    // pthread_join(schedulers[num_schedulers-1], &status);
     pthread_exit(NULL);
 }
